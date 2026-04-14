@@ -1,0 +1,52 @@
+[
+  {
+    "clause_text": "Supplier shall indemnify Customer against third-party claims arising from Supplier's breach of this Agreement, provided that Supplier's total liability under this section will not exceed the fees paid under this Agreement during the twelve months preceding the claim.",
+    "ground_truth_risk": "LOW",
+    "notes": "Indemnification example. Tied to supplier breach and includes a clear financial cap."
+  },
+  {
+    "clause_text": "Vendor shall defend, indemnify, and hold harmless Company, its affiliates, officers, directors, employees, and customers from any and all claims, losses, liabilities, damages, costs, and expenses of every kind, whether direct or indirect, arising out of or related in any way to this Agreement, without limitation.",
+    "ground_truth_risk": "HIGH",
+    "notes": "Indemnification example. Extremely broad scope, broad beneficiaries, and no cap."
+  },
+  {
+    "clause_text": "Except for either party's fraud, willful misconduct, or breach of confidentiality, each party's aggregate liability under this Agreement shall not exceed the fees paid or payable in the twelve months before the event giving rise to the claim, and neither party shall be liable for consequential or special damages.",
+    "ground_truth_risk": "LOW",
+    "notes": "Limitation of liability example. Bilateral structure with standard carve-outs and a clear cap."
+  },
+  {
+    "clause_text": "In no event shall Company be liable for any damages of any kind arising from this Agreement, including direct, indirect, incidental, consequential, punitive, or special damages, whether or not Company was advised of the possibility of such damages.",
+    "ground_truth_risk": "HIGH",
+    "notes": "Limitation of liability example. One-sided and attempts to exclude even direct damages."
+  },
+  {
+    "clause_text": "Contractor hereby assigns to Company all right, title, and interest in any work product specifically developed for Company under this Agreement, excluding Contractor's pre-existing materials, tools, templates, and know-how, which shall remain Contractor property.",
+    "ground_truth_risk": "LOW",
+    "notes": "IP assignment example. Assignment is limited to project work product and preserves background IP."
+  },
+  {
+    "clause_text": "Employee irrevocably assigns to Company all inventions, discoveries, works of authorship, ideas, improvements, and other intellectual property conceived, developed, or reduced to practice by Employee at any time during employment, whether or not related to Company's business and whether created on or off duty.",
+    "ground_truth_risk": "HIGH",
+    "notes": "IP assignment example. Very expansive assignment beyond business-related work."
+  },
+  {
+    "clause_text": "For a period of six months after termination of employment, Employee shall not directly solicit any customer with whom Employee had material business contact during the final twelve months of employment for the purpose of providing competing services.",
+    "ground_truth_risk": "MEDIUM",
+    "notes": "Non-compete style restrictive covenant. Narrower than a full non-compete but still meaningfully restrictive."
+  },
+  {
+    "clause_text": "For two years after the end of employment, Employee shall not, anywhere in the United States, directly or indirectly engage in, assist, invest in, or be employed by any business that competes in any respect with Company.",
+    "ground_truth_risk": "HIGH",
+    "notes": "Non-compete example. Broad geography, broad activity restriction, and long duration."
+  },
+  {
+    "clause_text": "Any dispute arising out of this Agreement shall be resolved by confidential binding arbitration in New York, New York before a single arbitrator under the commercial rules of the American Arbitration Association, and each party shall bear its own attorneys' fees unless the arbitrator determines otherwise.",
+    "ground_truth_risk": "MEDIUM",
+    "notes": "Arbitration example. Common structure, but the venue and mandatory arbitration may still create burden."
+  },
+  {
+    "clause_text": "All disputes shall be resolved exclusively by binding arbitration in a forum selected by Company, under procedures determined by Company, and Customer waives any right to participate in a class, collective, or representative action and shall pay Company's legal fees if Company prevails on any claim.",
+    "ground_truth_risk": "HIGH",
+    "notes": "Arbitration example. Heavily one-sided process and fee-shifting provisions."
+  }
+]

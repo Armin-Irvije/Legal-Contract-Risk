@@ -7,20 +7,25 @@ import time
 from pathlib import Path
 from typing import Any
 
+from env_utils import load_project_env
+
 try:
     from anthropic import Anthropic
 except ImportError as exc:  # pragma: no cover - depends on local environment.
     Anthropic = Any  # type: ignore[assignment]
+    # ignore so module can still be imported even if anthropic is not installed
     ANTHROPIC_IMPORT_ERROR = exc
 else:
     ANTHROPIC_IMPORT_ERROR = None
+
+load_project_env(__file__)
 
 LOGGER = logging.getLogger(__name__)
 
 ALLOWED_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH"}
 REQUIRED_OUTPUT_KEYS = ("risk_level", "explanation", "suggested_redline")
-DEFAULT_MODEL = os.getenv("PIPELINE_MODEL", "claude-haiku-4-5")
-DEFAULT_MAX_TOKENS = 900
+DEFAULT_MODEL = os.environ["PIPELINE_MODEL"]
+DEFAULT_MAX_TOKENS = int(os.environ["PIPELINE_MAX_TOKENS"])
 PROMPT_PLACEHOLDER = "{{CLAUSE_TEXT}}"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
