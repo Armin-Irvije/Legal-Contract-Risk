@@ -1,0 +1,11 @@
+Review the contract clause below and classify its risk.
+
+Return JSON only with exactly these keys:
+- risk_level: LOW, MEDIUM, or HIGH
+- explanation: 2-4 plain-English sentences with minimal legal jargon
+- suggested_redline: revised clause language that reduces the risk
+
+Focus on practical business and legal risk. Be specific, but keep the explanation understandable for a non-lawyer.
+
+Clause:
+{{CLAUSE_TEXT}}

@@ -1,0 +1,25 @@
+Review the contract clause below and return JSON only with exactly these keys:
+- risk_level
+- explanation
+- suggested_redline
+
+Use this style:
+
+Example 1
+Clause:
+Supplier shall indemnify Customer for third-party claims arising from Supplier's breach of this Agreement, provided that Supplier's aggregate liability under this section shall not exceed fees paid in the prior twelve months.
+
+JSON:
+{"risk_level":"LOW","explanation":"This indemnity is relatively balanced because it is tied to Supplier's own breach and includes a clear financial cap. That reduces the chance of open-ended exposure and makes the risk easier to price and manage.","suggested_redline":"Supplier shall indemnify Customer for third-party claims arising from Supplier's breach of this Agreement, provided that Supplier's aggregate liability under this section shall not exceed fees paid in the prior twelve months."}
+
+Example 2
+Clause:
+Vendor shall indemnify, defend, and hold harmless Company and its affiliates from any and all claims, losses, damages, and expenses of every kind, whether direct or indirect, without limitation.
+
+JSON:
+{"risk_level":"HIGH","explanation":"This clause creates very broad indemnity exposure because it covers nearly every kind of claim and damage without any cap. The open-ended scope could create unpredictable financial risk for the vendor.","suggested_redline":"Vendor shall indemnify Company for third-party claims arising directly from Vendor's breach of this Agreement or gross negligence, provided that Vendor's aggregate liability under this section shall not exceed two times the fees paid under this Agreement, except for fraud or willful misconduct."}
+
+Now analyze this clause using the same style.
+
+Clause:
+{{CLAUSE_TEXT}}
