@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,7 @@ DEFAULT_MAX_TOKENS = int(os.environ["PIPELINE_MAX_TOKENS"])
 PROMPT_PLACEHOLDER = "{{CLAUSE_TEXT}}"
 PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+MAX_LOG_OUTPUT_CHARS = 600
 
 BASE_SYSTEM_PROMPT = """
 You analyze a single contract clause for legal risk.
@@ -99,10 +101,10 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
         analysis = parse_and_validate_output(raw_output)
     except ResponseValidationError as exc:
         LOGGER.warning(
-            "Initial clause analysis output failed validation for prompt '%s': %s. Raw output: %r",
+            "Prompt '%s' returned invalid analysis JSON.\nReason: %s\nRaw output:\n%s\nRetrying with JSON repair prompt.",
             prompt_path.name,
             exc,
-            raw_output,
+            format_model_output_for_log(raw_output),
         )
 
         format_fix_prompt = build_format_fix_prompt(clause, raw_output, str(exc))
@@ -121,13 +123,14 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
             analysis = parse_and_validate_output(repaired_output)
         except ResponseValidationError as retry_exc:
             LOGGER.error(
-                "Format-fix retry also failed for prompt '%s': %s. Raw retry output: %r",
+                "Prompt '%s' still returned invalid analysis JSON after the repair attempt.\nInitial error: %s\nRetry error: %s\nRetry output:\n%s",
                 prompt_path.name,
+                exc,
                 retry_exc,
-                repaired_output,
+                format_model_output_for_log(repaired_output),
             )
             raise ResponseValidationError(
-                "Model output could not be coerced into the required JSON schema."
+                "Model output could not be converted into the required JSON object after the repair attempt."
             ) from retry_exc
 
     total_latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -193,8 +196,9 @@ def build_format_fix_prompt(clause_text: str, raw_output: str, validation_error:
 
 def parse_and_validate_output(raw_output: str) -> dict[str, str]:
     parsed: Any
+    json_candidate = normalize_json_candidate(raw_output)
     try:
-        parsed = json.loads(raw_output)
+        parsed = json.loads(json_candidate)
     except json.JSONDecodeError as exc:
         raise ResponseValidationError(f"Output is not valid JSON: {exc}") from exc
 
@@ -224,6 +228,31 @@ def parse_and_validate_output(raw_output: str) -> dict[str, str]:
 
     normalized_output["risk_level"] = normalized_risk
     return normalized_output
+
+
+def normalize_json_candidate(raw_output: str) -> str:
+    """Strip common markdown fencing before JSON validation."""
+    stripped_output = raw_output.strip()
+    if not stripped_output.startswith("```"):
+        return stripped_output
+
+    lines = stripped_output.splitlines()
+    if len(lines) < 3 or lines[-1].strip() != "```":
+        return stripped_output
+
+    opening_fence = lines[0].strip()
+    if opening_fence not in {"```", "```json"}:
+        return stripped_output
+
+    return "\n".join(lines[1:-1]).strip()
+
+
+def format_model_output_for_log(raw_output: str, max_chars: int = MAX_LOG_OUTPUT_CHARS) -> str:
+    """Format raw model output into an indented, truncated log block."""
+    compact_output = raw_output.strip() or "<empty>"
+    if len(compact_output) > max_chars:
+        compact_output = f"{compact_output[:max_chars].rstrip()}\n... <truncated>"
+    return textwrap.indent(compact_output, "  ")
 
 
 def _invoke_anthropic(client: Anthropic, model: str, max_tokens: int, system_prompt: str, user_prompt: str) -> tuple[str, Any, float]:

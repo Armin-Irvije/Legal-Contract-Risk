@@ -4,6 +4,7 @@ import argparse
 import json
 import logging
 import os
+import textwrap
 from pathlib import Path
 from typing import Any
 from typing import Sequence
@@ -16,11 +17,14 @@ from judge import DEFAULT_MODEL as DEFAULT_JUDGE_MODEL
 from judge import JudgeError
 from judge import score_output
 from pipeline import DEFAULT_MAX_TOKENS, DEFAULT_MODEL, PipelineError, analyze_clause
+from reporting import write_judge_report
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_ENV_FILE = load_project_env(__file__)
 DEFAULT_SMOKE_SET = PROJECT_ROOT / "data" / "smoke_set.json"
+DEFAULT_OUTPUT_DIR = PROJECT_ROOT / "output"
 LOGGER = logging.getLogger(__name__)
+NOISY_LOGGERS = ("httpx", "httpcore")
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -33,15 +37,26 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--clause-text", help="Analyze a single clause directly from the command line.")
     parser.add_argument("--clauses", default=str(DEFAULT_SMOKE_SET), help="Path to a clause dataset JSON file. Defaults to the synthetic smoke set.")
     parser.add_argument("--env-file", default=str(DEFAULT_ENV_FILE), help="Optional .env file to load before running.")
+    parser.add_argument("--output-dir", default=str(DEFAULT_OUTPUT_DIR), help="Directory where the readable judge report JSON will be written.")
     parser.add_argument("--log-level", default="INFO", choices=("DEBUG", "INFO", "WARNING", "ERROR"), help="Logging verbosity.")
     return parser
+
+
+def configure_logging(log_level_name: str) -> None:
+    """Configure concise CLI logging and silence noisy HTTP logs."""
+    log_level = getattr(logging, log_level_name.upper())
+    logging.basicConfig(level=log_level, format="%(levelname)s %(message)s")
+
+    if log_level > logging.DEBUG:
+        for logger_name in NOISY_LOGGERS:
+            logging.getLogger(logger_name).setLevel(logging.WARNING)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(list(argv) if argv is not None else None)
 
-    logging.basicConfig(level=getattr(logging, args.log_level), format="%(levelname)s %(name)s: %(message)s")
+    configure_logging(args.log_level)
     load_env_file(Path(args.env_file))
     normalize_api_key_env()
 
@@ -68,6 +83,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         LOGGER.error("%s", exc)
         return 1
 
+    report_path = write_judge_report(results, Path(args.output_dir))
+    LOGGER.info("Saved judge report to %s", report_path)
     print(json.dumps(results, indent=2))
     return 0
 
@@ -82,13 +99,14 @@ def evaluate_dataset(
 ) -> dict[str, Any]:
     dataset = load_dataset(clauses_path)
     records: list[dict[str, Any]] = []
+    total_records = len(dataset)
 
     for index, record in enumerate(dataset, start=1):
         clause_text = record["clause_text"]
         ground_truth_risk = record["ground_truth_risk"]
         notes = record.get("notes")
 
-        LOGGER.info("Evaluating clause %s/%s", index, len(dataset))
+        LOGGER.info("[%s/%s] Evaluating clause: %s", index, total_records, summarize_clause_text(clause_text))
         pipeline_result = analyze_clause(
             clause_text=clause_text,
             prompt=prompt,
@@ -101,6 +119,16 @@ def evaluate_dataset(
             ground_truth_label=ground_truth_risk,
             model=judge_model,
             max_tokens=judge_max_tokens,
+        )
+        LOGGER.info(
+            "[%s/%s] Completed | predicted=%s | expected=%s | judge=%s | pipeline_attempts=%s | judge_attempts=%s",
+            index,
+            total_records,
+            pipeline_result["analysis"]["risk_level"],
+            ground_truth_risk,
+            judge_result["scores"]["label_accuracy"],
+            pipeline_result["metadata"]["attempt_count"],
+            judge_result["metadata"]["attempt_count"],
         )
 
         records.append(
@@ -122,6 +150,14 @@ def evaluate_dataset(
         "aggregates": compute_aggregates(records),
         "results": records,
     }
+
+
+def summarize_clause_text(clause_text: str, max_chars: int = 100) -> str:
+    """Return a single-line preview for progress logging."""
+    compact_text = " ".join(clause_text.split())
+    if len(compact_text) <= max_chars:
+        return compact_text
+    return textwrap.shorten(compact_text, width=max_chars, placeholder="...")
 
 
 def load_dataset(dataset_path: Path) -> list[dict[str, Any]]:

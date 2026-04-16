@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
+import textwrap
 from typing import Any
 
 from env_utils import load_project_env
@@ -17,6 +19,7 @@ else:
 
 load_project_env(__file__)
 
+LOGGER = logging.getLogger(__name__)
 ALLOWED_RISK_LEVELS = {"LOW", "MEDIUM", "HIGH"}
 ALLOWED_LABEL_ACCURACY = {"pass", "fail"}
 REQUIRED_PIPELINE_OUTPUT_KEYS = ("risk_level", "explanation", "suggested_redline")
@@ -24,6 +27,7 @@ REQUIRED_JUDGE_KEYS = ("label_accuracy", "explanation_quality", "redline_usefuln
 DEFAULT_MODEL = os.environ["JUDGE_MODEL"]
 DEFAULT_MAX_TOKENS = int(os.environ["JUDGE_MAX_TOKENS"])
 API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
+MAX_LOG_OUTPUT_CHARS = 600
 
 BASE_SYSTEM_PROMPT = """
 You are a strict evaluator for a legal clause risk review system.
@@ -103,6 +107,11 @@ def score_output(
     try:
         scores = parse_and_validate_judge_output(raw_output)
     except JudgeValidationError as exc:
+        LOGGER.warning(
+            "Judge returned invalid JSON.\nReason: %s\nRaw output:\n%s\nRetrying with JSON repair prompt.",
+            exc,
+            format_model_output_for_log(raw_output),
+        )
         format_fix_prompt = build_format_fix_prompt(judge_prompt, raw_output, str(exc))
         repaired_output, repaired_response, repaired_latency_ms = _invoke_anthropic(
             client=anthropic_client,
@@ -124,8 +133,14 @@ def score_output(
         try:
             scores = parse_and_validate_judge_output(repaired_output)
         except JudgeValidationError as retry_exc:
+            LOGGER.error(
+                "Judge output was still invalid after the repair attempt.\nInitial error: %s\nRetry error: %s\nRetry output:\n%s",
+                exc,
+                retry_exc,
+                format_model_output_for_log(repaired_output),
+            )
             raise JudgeValidationError(
-                "Judge output could not be coerced into the required JSON schema."
+                "Judge output could not be converted into the required JSON object after the repair attempt."
             ) from retry_exc
 
     total_latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
@@ -190,8 +205,9 @@ def build_format_fix_prompt(original_prompt: str, raw_output: str, validation_er
 
 
 def parse_and_validate_judge_output(raw_output: str) -> dict[str, Any]:
+    json_candidate = normalize_json_candidate(raw_output)
     try:
-        parsed = json.loads(raw_output)
+        parsed = json.loads(json_candidate)
     except json.JSONDecodeError as exc:
         raise JudgeValidationError(f"Output is not valid JSON: {exc}") from exc
 
@@ -222,6 +238,31 @@ def parse_and_validate_judge_output(raw_output: str) -> dict[str, Any]:
         "explanation_quality": explanation_quality,
         "redline_usefulness": redline_usefulness,
     }
+
+
+def normalize_json_candidate(raw_output: str) -> str:
+    """Strip common markdown fencing before JSON validation."""
+    stripped_output = raw_output.strip()
+    if not stripped_output.startswith("```"):
+        return stripped_output
+
+    lines = stripped_output.splitlines()
+    if len(lines) < 3 or lines[-1].strip() != "```":
+        return stripped_output
+
+    opening_fence = lines[0].strip()
+    if opening_fence not in {"```", "```json"}:
+        return stripped_output
+
+    return "\n".join(lines[1:-1]).strip()
+
+
+def format_model_output_for_log(raw_output: str, max_chars: int = MAX_LOG_OUTPUT_CHARS) -> str:
+    """Format raw model output into an indented, truncated log block."""
+    compact_output = raw_output.strip() or "<empty>"
+    if len(compact_output) > max_chars:
+        compact_output = f"{compact_output[:max_chars].rstrip()}\n... <truncated>"
+    return textwrap.indent(compact_output, "  ")
 
 
 def _normalize_ground_truth_label(label: str) -> str:
