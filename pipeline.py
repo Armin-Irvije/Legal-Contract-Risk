@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
-import time
 import textwrap
 from pathlib import Path
 from typing import Any
 
 from env_utils import load_project_env
+from telemetry import extract_text_from_response
+from telemetry import invoke_anthropic_with_retry
 
 try:
     from anthropic import Anthropic
@@ -64,6 +66,10 @@ class ResponseValidationError(PipelineError):
     """Raised when the model output is not valid JSON matching the schema."""
 
 
+class ProviderRequestError(PipelineError):
+    """Raised when the provider request fails after retry attempts."""
+
+
 def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = None, max_tokens: int = DEFAULT_MAX_TOKENS, api_key: str | None = None, client: Anthropic | None = None) -> dict[str, Any]:
     clause = clause_text.strip()
     if not clause:
@@ -77,6 +83,7 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
     prompt_template = prompt_path.read_text(encoding="utf-8").strip()
     if not prompt_template:
         raise PromptTemplateError(f"Prompt template is empty: {prompt_path}")
+    prompt_hash = hashlib.sha256(prompt_template.encode("utf-8")).hexdigest()
 
     selected_model = model or DEFAULT_MODEL
     anthropic_client = client or Anthropic(api_key=api_key or _read_api_key())
@@ -84,18 +91,21 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
 
     usage_totals = {"input_tokens": 0, "output_tokens": 0}
     attempt_summaries: list[dict[str, Any]] = []
-    started_at = time.perf_counter()
-
-    raw_output, response, latency_ms = _invoke_anthropic(client=anthropic_client, model=selected_model, max_tokens=max_tokens, system_prompt=BASE_SYSTEM_PROMPT, user_prompt=rendered_prompt)
-    _accumulate_usage(usage_totals, response)
-    attempt_summaries.append(
-        {
-            "attempt": 1,
-            "type": "analysis",
-            "latency_ms": latency_ms,
-            "stop_reason": getattr(response, "stop_reason", None),
-        }
+    analysis_invocation = invoke_anthropic_with_retry(
+        client=anthropic_client,
+        model=selected_model,
+        max_tokens=max_tokens,
+        system_prompt=BASE_SYSTEM_PROMPT,
+        user_prompt=rendered_prompt,
+        operation="analysis",
+        error_cls=ProviderRequestError,
+        prompt_version=prompt_path.stem,
     )
+    raw_output = extract_text_from_response(analysis_invocation["response"])
+    if not raw_output:
+        raise ResponseValidationError("Model response did not contain any text content.")
+    _accumulate_usage(usage_totals, analysis_invocation["usage"])
+    attempt_summaries.append(build_call_summary(call_index=1, call_type="analysis", invocation=analysis_invocation))
 
     try:
         analysis = parse_and_validate_output(raw_output)
@@ -108,16 +118,21 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
         )
 
         format_fix_prompt = build_format_fix_prompt(clause, raw_output, str(exc))
-        repaired_output, repaired_response, repaired_latency_ms = _invoke_anthropic(client=anthropic_client, model=selected_model, max_tokens=max_tokens, system_prompt=FORMAT_FIX_SYSTEM_PROMPT, user_prompt=format_fix_prompt)
-        _accumulate_usage(usage_totals, repaired_response)
-        attempt_summaries.append(
-            {
-                "attempt": 2,
-                "type": "format_fix",
-                "latency_ms": repaired_latency_ms,
-                "stop_reason": getattr(repaired_response, "stop_reason", None),
-            }
+        repair_invocation = invoke_anthropic_with_retry(
+            client=anthropic_client,
+            model=selected_model,
+            max_tokens=max_tokens,
+            system_prompt=FORMAT_FIX_SYSTEM_PROMPT,
+            user_prompt=format_fix_prompt,
+            operation="format_fix",
+            error_cls=ProviderRequestError,
+            prompt_version=prompt_path.stem,
         )
+        repaired_output = extract_text_from_response(repair_invocation["response"])
+        if not repaired_output:
+            raise ResponseValidationError("Model response did not contain any text content.")
+        _accumulate_usage(usage_totals, repair_invocation["usage"])
+        attempt_summaries.append(build_call_summary(call_index=2, call_type="format_fix", invocation=repair_invocation))
 
         try:
             analysis = parse_and_validate_output(repaired_output)
@@ -133,8 +148,8 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
                 "Model output could not be converted into the required JSON object after the repair attempt."
             ) from retry_exc
 
-    total_latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
     total_tokens = usage_totals["input_tokens"] + usage_totals["output_tokens"]
+    total_latency_ms = round(sum(call_summary["latency_ms"] for call_summary in attempt_summaries), 2)
 
     return {
         "analysis": analysis,
@@ -142,6 +157,7 @@ def analyze_clause(clause_text: str, prompt: str = "v1", model: str | None = Non
             "model": selected_model,
             "prompt": prompt_path.stem,
             "prompt_path": str(prompt_path),
+            "prompt_hash": prompt_hash,
             "latency_ms": total_latency_ms,
             "tokens": {
                 "input_tokens": usage_totals["input_tokens"],
@@ -255,32 +271,6 @@ def format_model_output_for_log(raw_output: str, max_chars: int = MAX_LOG_OUTPUT
     return textwrap.indent(compact_output, "  ")
 
 
-def _invoke_anthropic(client: Anthropic, model: str, max_tokens: int, system_prompt: str, user_prompt: str) -> tuple[str, Any, float]:
-    started_at = time.perf_counter()
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=0,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
-    return _extract_text(response), response, latency_ms
-
-
-def _extract_text(response: Any) -> str:
-    text_parts = []
-    for block in getattr(response, "content", []):
-        block_type = getattr(block, "type", None)
-        if block_type == "text":
-            text_parts.append(getattr(block, "text", ""))
-
-    combined = "".join(text_parts).strip()
-    if not combined:
-        raise ResponseValidationError("Model response did not contain any text content.")
-    return combined
-
-
 def _read_api_key() -> str:
     for env_var in API_KEY_ENV_VARS:
         value = os.getenv(env_var)
@@ -292,10 +282,21 @@ def _read_api_key() -> str:
     )
 
 
-def _accumulate_usage(usage_totals: dict[str, int], response: Any) -> None:
-    usage = getattr(response, "usage", None)
-    if usage is None:
-        return
+def _accumulate_usage(usage_totals: dict[str, int], usage: dict[str, int]) -> None:
+    usage_totals["input_tokens"] += int(usage.get("input_tokens", 0) or 0)
+    usage_totals["output_tokens"] += int(usage.get("output_tokens", 0) or 0)
 
-    usage_totals["input_tokens"] += int(getattr(usage, "input_tokens", 0) or 0)
-    usage_totals["output_tokens"] += int(getattr(usage, "output_tokens", 0) or 0)
+
+def build_call_summary(call_index: int, call_type: str, invocation: dict[str, Any]) -> dict[str, Any]:
+    """Normalize shared telemetry into the pipeline metadata shape."""
+    return {
+        "attempt": call_index,
+        "type": call_type,
+        "model": invocation["provider_attempts"][-1]["model"],
+        "prompt_version": invocation["provider_attempts"][-1].get("prompt_version"),
+        "latency_ms": invocation["latency_ms"],
+        "tokens": invocation["usage"],
+        "provider_attempt_count": invocation["provider_attempt_count"],
+        "provider_attempts": invocation["provider_attempts"],
+        "stop_reason": getattr(invocation["response"], "stop_reason", None),
+    }

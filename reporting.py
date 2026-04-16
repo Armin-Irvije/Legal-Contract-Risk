@@ -12,12 +12,13 @@ def ensure_output_dir(output_dir: Path) -> Path:
     return output_dir
 
 
-def build_judge_report_filename(dataset_path: str) -> str:
+def build_judge_report_filename(dataset_path: str, prompt_id: str) -> str:
     """Create a stable, readable filename for a judge report."""
     dataset_name = Path(dataset_path).stem or "dataset"
     safe_dataset_name = sanitize_filename_component(dataset_name)
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    return f"judge_report_{safe_dataset_name}_{timestamp}.json"
+    safe_prompt_id = sanitize_filename_component(prompt_id)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+    return f"judge_report_{safe_dataset_name}_{safe_prompt_id}_{timestamp}.json"
 
 
 def sanitize_filename_component(value: str) -> str:
@@ -33,20 +34,26 @@ def build_judge_report(evaluation_results: dict[str, Any]) -> dict[str, Any]:
     report_records: list[dict[str, Any]] = []
 
     for index, record in enumerate(results, start=1):
-        pipeline = record["pipeline"]
-        judge = record["judge"]
+        pipeline = record.get("pipeline")
+        judge = record.get("judge")
+        pipeline_analysis = pipeline.get("analysis", {}) if isinstance(pipeline, dict) else {}
+        judge_scores = judge.get("scores") if isinstance(judge, dict) else None
+        error_details = record.get("error")
         report_records.append(
             {
                 "record_index": index,
+                "status": record.get("status", "completed"),
                 "clause_text": record["clause_text"],
                 "ground_truth_risk": record["ground_truth_risk"],
-                "predicted_risk": pipeline["analysis"]["risk_level"],
-                "judge_scores": judge["scores"],
-                "judge_summary": build_judge_summary(judge["scores"]),
-                "pipeline_explanation": pipeline["analysis"]["explanation"],
-                "suggested_redline": pipeline["analysis"]["suggested_redline"],
-                "judge_metadata": judge["metadata"],
-                "pipeline_metadata": pipeline["metadata"],
+                "predicted_risk": pipeline_analysis.get("risk_level"),
+                "judge_scores": judge_scores,
+                "judge_summary": build_judge_summary(judge_scores) if isinstance(judge_scores, dict) else None,
+                "pipeline_explanation": pipeline_analysis.get("explanation"),
+                "suggested_redline": pipeline_analysis.get("suggested_redline"),
+                "judge_metadata": judge.get("metadata") if isinstance(judge, dict) else None,
+                "pipeline_metadata": pipeline.get("metadata") if isinstance(pipeline, dict) else None,
+                "metrics": record.get("metrics"),
+                "error": error_details,
                 "notes": record.get("notes"),
             }
         )
@@ -56,6 +63,9 @@ def build_judge_report(evaluation_results: dict[str, Any]) -> dict[str, Any]:
         "generated_at": datetime.now().isoformat(timespec="seconds"),
         "dataset_path": evaluation_results["dataset_path"],
         "prompt": evaluation_results["prompt"],
+        "prompt_id": evaluation_results.get("prompt_id"),
+        "prompt_path": evaluation_results.get("prompt_path"),
+        "prompt_hash": evaluation_results.get("prompt_hash"),
         "pipeline_model": evaluation_results["pipeline_model"],
         "judge_model": evaluation_results["judge_model"],
         "record_count": evaluation_results["record_count"],
@@ -80,6 +90,9 @@ def write_judge_report(evaluation_results: dict[str, Any], output_dir: Path) -> 
     """Write a readable judge report JSON file into the chosen output directory."""
     report = build_judge_report(evaluation_results)
     target_dir = ensure_output_dir(output_dir)
-    output_path = target_dir / build_judge_report_filename(evaluation_results["dataset_path"])
+    output_path = target_dir / build_judge_report_filename(
+        evaluation_results["dataset_path"],
+        evaluation_results.get("prompt_id", evaluation_results["prompt"]),
+    )
     output_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return output_path

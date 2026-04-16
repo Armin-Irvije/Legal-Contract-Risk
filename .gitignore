@@ -4,3 +4,4 @@ myenv
 Legal_Clause_Risk_Evaluator_PRD.pdf
 __pycache__
 output/
+runs.jsonl

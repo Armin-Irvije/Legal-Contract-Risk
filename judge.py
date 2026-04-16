@@ -3,11 +3,12 @@ from __future__ import annotations
 import json
 import logging
 import os
-import time
 import textwrap
 from typing import Any
 
 from env_utils import load_project_env
+from telemetry import extract_text_from_response
+from telemetry import invoke_anthropic_with_retry
 
 try:
     from anthropic import Anthropic
@@ -58,6 +59,10 @@ class JudgeValidationError(JudgeError):
     """Raised when the judge output does not match the required schema."""
 
 
+class ProviderRequestError(JudgeError):
+    """Raised when the provider request fails after retry attempts."""
+
+
 def score_output(
     clause_text: str,
     pipeline_output: dict[str, Any] | str,
@@ -66,6 +71,7 @@ def score_output(
     max_tokens: int = DEFAULT_MAX_TOKENS,
     api_key: str | None = None,
     client: Anthropic | None = None,
+    prompt_version: str | None = None,
 ) -> dict[str, Any]:
     clause = clause_text.strip()
     if not clause:
@@ -85,24 +91,21 @@ def score_output(
 
     usage_totals = {"input_tokens": 0, "output_tokens": 0}
     attempt_summaries: list[dict[str, Any]] = []
-    started_at = time.perf_counter()
-
-    raw_output, response, latency_ms = _invoke_anthropic(
+    judge_invocation = invoke_anthropic_with_retry(
         client=anthropic_client,
         model=selected_model,
         max_tokens=max_tokens,
         system_prompt=BASE_SYSTEM_PROMPT,
         user_prompt=judge_prompt,
+        operation="judge",
+        error_cls=ProviderRequestError,
+        prompt_version=prompt_version,
     )
-    _accumulate_usage(usage_totals, response)
-    attempt_summaries.append(
-        {
-            "attempt": 1,
-            "type": "judge",
-            "latency_ms": latency_ms,
-            "stop_reason": getattr(response, "stop_reason", None),
-        }
-    )
+    raw_output = extract_text_from_response(judge_invocation["response"])
+    if not raw_output:
+        raise JudgeValidationError("Model response did not contain any text content.")
+    _accumulate_usage(usage_totals, judge_invocation["usage"])
+    attempt_summaries.append(build_call_summary(call_index=1, call_type="judge", invocation=judge_invocation))
 
     try:
         scores = parse_and_validate_judge_output(raw_output)
@@ -113,22 +116,21 @@ def score_output(
             format_model_output_for_log(raw_output),
         )
         format_fix_prompt = build_format_fix_prompt(judge_prompt, raw_output, str(exc))
-        repaired_output, repaired_response, repaired_latency_ms = _invoke_anthropic(
+        repair_invocation = invoke_anthropic_with_retry(
             client=anthropic_client,
             model=selected_model,
             max_tokens=max_tokens,
             system_prompt=FORMAT_FIX_SYSTEM_PROMPT,
             user_prompt=format_fix_prompt,
+            operation="judge_format_fix",
+            error_cls=ProviderRequestError,
+            prompt_version=prompt_version,
         )
-        _accumulate_usage(usage_totals, repaired_response)
-        attempt_summaries.append(
-            {
-                "attempt": 2,
-                "type": "format_fix",
-                "latency_ms": repaired_latency_ms,
-                "stop_reason": getattr(repaired_response, "stop_reason", None),
-            }
-        )
+        repaired_output = extract_text_from_response(repair_invocation["response"])
+        if not repaired_output:
+            raise JudgeValidationError("Model response did not contain any text content.")
+        _accumulate_usage(usage_totals, repair_invocation["usage"])
+        attempt_summaries.append(build_call_summary(call_index=2, call_type="format_fix", invocation=repair_invocation))
 
         try:
             scores = parse_and_validate_judge_output(repaired_output)
@@ -143,13 +145,14 @@ def score_output(
                 "Judge output could not be converted into the required JSON object after the repair attempt."
             ) from retry_exc
 
-    total_latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
     total_tokens = usage_totals["input_tokens"] + usage_totals["output_tokens"]
+    total_latency_ms = round(sum(call_summary["latency_ms"] for call_summary in attempt_summaries), 2)
 
     return {
         "scores": scores,
         "metadata": {
             "model": selected_model,
+            "prompt_version": prompt_version,
             "latency_ms": total_latency_ms,
             "tokens": {
                 "input_tokens": usage_totals["input_tokens"],
@@ -321,37 +324,6 @@ def _validate_score_field(value: Any, field_name: str) -> int:
     return value
 
 
-def _invoke_anthropic(
-    client: Anthropic,
-    model: str,
-    max_tokens: int,
-    system_prompt: str,
-    user_prompt: str,
-) -> tuple[str, Any, float]:
-    started_at = time.perf_counter()
-    response = client.messages.create(
-        model=model,
-        max_tokens=max_tokens,
-        temperature=0,
-        system=system_prompt,
-        messages=[{"role": "user", "content": user_prompt}],
-    )
-    latency_ms = round((time.perf_counter() - started_at) * 1000, 2)
-    return _extract_text(response), response, latency_ms
-
-
-def _extract_text(response: Any) -> str:
-    text_parts = []
-    for block in getattr(response, "content", []):
-        if getattr(block, "type", None) == "text":
-            text_parts.append(getattr(block, "text", ""))
-
-    combined = "".join(text_parts).strip()
-    if not combined:
-        raise JudgeValidationError("Model response did not contain any text content.")
-    return combined
-
-
 def _read_api_key() -> str:
     for env_var in API_KEY_ENV_VARS:
         value = os.getenv(env_var)
@@ -363,10 +335,21 @@ def _read_api_key() -> str:
     )
 
 
-def _accumulate_usage(usage_totals: dict[str, int], response: Any) -> None:
-    usage = getattr(response, "usage", None)
-    if usage is None:
-        return
+def _accumulate_usage(usage_totals: dict[str, int], usage: dict[str, int]) -> None:
+    usage_totals["input_tokens"] += int(usage.get("input_tokens", 0) or 0)
+    usage_totals["output_tokens"] += int(usage.get("output_tokens", 0) or 0)
 
-    usage_totals["input_tokens"] += int(getattr(usage, "input_tokens", 0) or 0)
-    usage_totals["output_tokens"] += int(getattr(usage, "output_tokens", 0) or 0)
+
+def build_call_summary(call_index: int, call_type: str, invocation: dict[str, Any]) -> dict[str, Any]:
+    """Normalize shared telemetry into the judge metadata shape."""
+    return {
+        "attempt": call_index,
+        "type": call_type,
+        "model": invocation["provider_attempts"][-1]["model"],
+        "prompt_version": invocation["provider_attempts"][-1].get("prompt_version"),
+        "latency_ms": invocation["latency_ms"],
+        "tokens": invocation["usage"],
+        "provider_attempt_count": invocation["provider_attempt_count"],
+        "provider_attempts": invocation["provider_attempts"],
+        "stop_reason": getattr(invocation["response"], "stop_reason", None),
+    }
