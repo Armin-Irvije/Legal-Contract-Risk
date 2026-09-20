@@ -1,1 +1,5 @@
 anthropic
+fastapi
+uvicorn[standard]
+openai
+pydantic

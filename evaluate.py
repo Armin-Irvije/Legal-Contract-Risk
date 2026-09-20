@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 from typing import Sequence
-
+# imports from other files
 from cost import estimate_model_cost_usd
 from cost import load_pricing_config
 from env_utils import load_env_file
@@ -27,6 +27,7 @@ from pipeline import analyze_clause
 from pipeline import resolve_prompt_path
 from reporting import write_judge_report
 
+# constants, immutable variables, should not change after initalization
 PROJECT_ROOT = Path(__file__).resolve().parent
 DEFAULT_ENV_FILE = load_project_env(__file__)
 DEFAULT_SMOKE_SET = PROJECT_ROOT / "data" / "smoke_set.json"

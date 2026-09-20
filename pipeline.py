@@ -34,6 +34,8 @@ PROMPTS_DIR = Path(__file__).resolve().parent / "prompts"
 API_KEY_ENV_VARS = ("ANTHROPIC_API_KEY", "CLAUDE_API_KEY")
 MAX_LOG_OUTPUT_CHARS = 600
 
+# Base system prompt is defining how it should evaluate the clause
+# description, provide reason then suggest redline
 BASE_SYSTEM_PROMPT = """
 You analyze a single contract clause for legal risk.
 Return JSON only with no markdown, commentary, or surrounding text.
