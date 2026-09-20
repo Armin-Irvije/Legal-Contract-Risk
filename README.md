@@ -84,6 +84,22 @@ Successful responses include `analysis` (`risk_level`, `explanation`, `suggested
 
 Safety rails refuse empty/oversized input and requests that ask to hide risk, evade liability, or get binding legal advice (HTTP 400 + structured refusal). Offline checks: `api/test_safety.py`.
 
+### Docker
+
+Requires Docker Desktop (or Engine + Compose). Put `OPENROUTER_API_KEY` in `.env` first.
+
+```bash
+docker compose up --build
+```
+
+API listens on `http://127.0.0.1:8000`. Healthcheck hits `/health` inside the container.
+
+```bash
+curl -s http://127.0.0.1:8000/health
+```
+
+Stop with `Ctrl+C` or `docker compose down`.
+
 ## Layout
 
 ```text
@@ -93,12 +109,9 @@ evaluate.py      # CLI entrypoint
 cost.py / pricing.json / telemetry.py
 prompts/         # v1, v2, v3 templates
 data/            # smoke / golden clause sets
-api/             # FastAPI ClauseGuard (OpenRouter)
-  main.py
-  service.py
-  providers.py
-  safety.py
-  schemas.py
+  api/             # FastAPI ClauseGuard (OpenRouter)
+Dockerfile         # API image
+docker-compose.yml # local self-host for the API
 ```
 
 ## Safety and non-goals
@@ -109,6 +122,6 @@ api/             # FastAPI ClauseGuard (OpenRouter)
 
 ## Roadmap (short)
 
-- Docker Compose for the API
+- [x] Docker Compose for the API
 - TypeScript/Next.js UI (`web/`)
 - Zero-cost public hosting (Vercel UI + free API or tunnel)

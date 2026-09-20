@@ -1,0 +1,11 @@
+myenv/
+.git/
+.cursor/
+__pycache__/
+**/__pycache__/
+*.pyc
+.env
+output/
+runs.jsonl
+*.pdf
+README.md
