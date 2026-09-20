@@ -5,3 +5,6 @@ Legal_Clause_Risk_Evaluator_PRD.pdf
 __pycache__
 output/
 runs.jsonl
+web/node_modules/
+web/.next/
+web/.env.local

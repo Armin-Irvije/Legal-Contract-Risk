@@ -10,6 +10,7 @@ Prototype for **legaltech / LLMOps**: score individual contract clauses for risk
 |------|---------|
 | **CLI** (`evaluate.py`) | Run Anthropic pipeline + judge over a clause dataset; log tokens, latency, cost |
 | **API** (`api/`) | `POST /analyze` via cheap OpenRouter models with safety refusals |
+| **Web** (`web/`) | Next.js UI — paste clause → risk / explanation / redline + cost |
 
 Shared pieces: prompt versions (`prompts/v1`–`v3`), strict JSON validation, format-fix retry, pricing in `pricing.json`.
 
@@ -100,6 +101,17 @@ curl -s http://127.0.0.1:8000/health
 
 Stop with `Ctrl+C` or `docker compose down`.
 
+## ClauseGuard web UI
+
+```bash
+cd web
+cp .env.example .env.local
+npm install
+npm run dev
+```
+
+Open `http://localhost:3000`. Point `NEXT_PUBLIC_API_URL` at the API (default `http://127.0.0.1:8000`). The API allows those origins via `CLAUSEGUARD_CORS_ORIGINS`.
+
 ## Layout
 
 ```text
@@ -109,7 +121,8 @@ evaluate.py      # CLI entrypoint
 cost.py / pricing.json / telemetry.py
 prompts/         # v1, v2, v3 templates
 data/            # smoke / golden clause sets
-  api/             # FastAPI ClauseGuard (OpenRouter)
+api/             # FastAPI ClauseGuard (OpenRouter)
+web/             # Next.js + TypeScript UI
 Dockerfile         # API image
 docker-compose.yml # local self-host for the API
 ```
@@ -123,5 +136,5 @@ docker-compose.yml # local self-host for the API
 ## Roadmap (short)
 
 - [x] Docker Compose for the API
-- TypeScript/Next.js UI (`web/`)
+- [x] TypeScript/Next.js UI (`web/`)
 - Zero-cost public hosting (Vercel UI + free API or tunnel)

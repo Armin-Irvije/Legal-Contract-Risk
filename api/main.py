@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 import logging
+import os
 
 from fastapi import FastAPI
 from fastapi import HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from api.safety import DISCLAIMER
@@ -22,10 +24,22 @@ from pipeline import ResponseValidationError
 
 LOGGER = logging.getLogger(__name__)
 
+# Comma-separated origins for the Next.js UI (local + optional Vercel URL).
+_DEFAULT_CORS = "http://localhost:3000,http://127.0.0.1:3000"
+_CORS_ORIGINS = [origin.strip() for origin in os.getenv("CLAUSEGUARD_CORS_ORIGINS", _DEFAULT_CORS).split(",") if origin.strip()]
+
 app = FastAPI(
     title="ClauseGuard API",
     description="Legal clause risk analysis demo. Not legal advice.",
     version="0.1.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_CORS_ORIGINS,
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
 )
 
 
