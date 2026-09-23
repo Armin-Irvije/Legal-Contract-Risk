@@ -15,9 +15,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY api/ api/
 COPY prompts/ prompts/
 COPY pipeline.py cost.py env_utils.py telemetry.py pricing.json ./
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 8000
 
-# $$ keeps ${PORT} for the shell at container start. Docker would otherwise
-# expand it to 8000 while building the image.
-CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port $${PORT:-8000}"]
+# Entrypoint reads PORT at container start. A Dockerfile ${PORT} would be
+# expanded at image build time, and $$ inside JSON CMD is the shell PID.
+CMD ["/docker-entrypoint.sh"]
