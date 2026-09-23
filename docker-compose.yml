@@ -10,6 +10,8 @@ services:
       PIPELINE_MODEL: ${PIPELINE_MODEL:-openai/gpt-4o-mini}
       PIPELINE_MAX_TOKENS: ${PIPELINE_MAX_TOKENS:-900}
       CLAUSEGUARD_CORS_ORIGINS: ${CLAUSEGUARD_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
+      # Pin local API to the published port. Render injects its own PORT.
+      PORT: "8000"
     healthcheck:
       test:
         [

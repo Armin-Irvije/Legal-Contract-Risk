@@ -125,6 +125,41 @@ npm run dev
 
 Open `http://localhost:3000`. Point `NEXT_PUBLIC_API_URL` at the API (default `http://127.0.0.1:8000`). The API allows those origins via `CLAUSEGUARD_CORS_ORIGINS`. Keep the API up via Compose or `uvicorn`.
 
+## Public hosting (Render API + Vercel UI)
+
+The browser calls the API directly (`NEXT_PUBLIC_API_URL`). Host the FastAPI image on Render and the Next.js app on Vercel.
+
+### Render (API)
+
+1. Push this repo, then create a **Web Service** from it.
+2. Runtime **Docker**, Dockerfile `./Dockerfile` (repo root), instance **Free**, health check path `/health`.
+3. The image listens on `$PORT` (Render’s default is `10000`). Local Compose pins `PORT=8000`.
+4. Set environment variables on the service:
+   - `OPENROUTER_API_KEY`
+   - `CLAUSEGUARD_MODEL` (default `openai/gpt-4o-mini`)
+   - `CLAUSEGUARD_CORS_ORIGINS` — start with `http://localhost:3000,http://127.0.0.1:3000`, then add the Vercel origin after the UI deploy
+5. Copy the public URL (for example `https://clauseguard-api.onrender.com`).
+
+Free web services spin down after about 15 minutes without traffic. The first request after idle is slower.
+
+### Vercel (web)
+
+1. Import the same repo. Set **Root Directory** to `web` (Next.js preset).
+2. Set `NEXT_PUBLIC_API_URL` to the Render URL with no trailing slash (Production and Preview).
+3. Deploy and copy the site URL (for example `https://your-app.vercel.app`).
+
+`NEXT_PUBLIC_API_URL` is baked in at build time. Changing it requires a new Vercel deploy.
+
+### Wire CORS
+
+On Render, set `CLAUSEGUARD_CORS_ORIGINS` to the local origins plus the Vercel origin, then redeploy the API (CORS is read at process start):
+
+```text
+http://localhost:3000,http://127.0.0.1:3000,https://your-app.vercel.app
+```
+
+Preview deployments need their own origins added the same way. Smoke-check `GET /health`, then open the Vercel UI and analyze a synthetic clause.
+
 ## Layout
 
 ```text
@@ -151,4 +186,4 @@ docker-compose.yml # local self-host (API + web)
 
 - [x] Docker Compose for the API (+ web UI)
 - [x] TypeScript/Next.js UI (`web/`)
-- Zero-cost public hosting (Vercel UI + free API or tunnel)
+- [ ] Zero-cost public hosting — Render API + Vercel UI (see Public hosting)

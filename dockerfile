@@ -18,4 +18,6 @@ COPY pipeline.py cost.py env_utils.py telemetry.py pricing.json ./
 
 EXPOSE 8000
 
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# $$ keeps ${PORT} for the shell at container start. Docker would otherwise
+# expand it to 8000 while building the image.
+CMD ["sh", "-c", "uvicorn api.main:app --host 0.0.0.0 --port $${PORT:-8000}"]
