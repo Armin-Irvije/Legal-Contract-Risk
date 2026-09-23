@@ -9,3 +9,5 @@ output/
 runs.jsonl
 *.pdf
 README.md
+web/
+notes.md

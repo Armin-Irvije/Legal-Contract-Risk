@@ -1,7 +1,8 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Keep the UI thin; API lives in ../api (Docker / uvicorn).
+  // Standalone output for a slim Docker image (see web/Dockerfile).
+  output: "standalone",
 };
 
 export default nextConfig;

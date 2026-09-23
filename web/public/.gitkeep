@@ -1,0 +1,1 @@
+# Keep public/ in the image (Next.js static assets; favicon lives under app/).

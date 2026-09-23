@@ -85,7 +85,7 @@ Successful responses include `analysis` (`risk_level`, `explanation`, `suggested
 
 Safety rails refuse empty/oversized input and requests that ask to hide risk, evade liability, or get binding legal advice (HTTP 400 + structured refusal). Offline checks: `api/test_safety.py`.
 
-### Docker
+### Docker (API + web UI)
 
 Requires Docker Desktop (or Engine + Compose). Put `OPENROUTER_API_KEY` in `.env` first.
 
@@ -93,7 +93,18 @@ Requires Docker Desktop (or Engine + Compose). Put `OPENROUTER_API_KEY` in `.env
 docker compose up --build
 ```
 
-API listens on `http://127.0.0.1:8000`. Healthcheck hits `/health` inside the container.
+Starts both services:
+
+| Service | URL |
+|---------|-----|
+| API | `http://127.0.0.1:8000` |
+| Web UI | `http://localhost:3000` |
+
+The UI image bakes `NEXT_PUBLIC_API_URL` at build time (default `http://127.0.0.1:8000`). Override when building if needed:
+
+```bash
+NEXT_PUBLIC_API_URL=http://127.0.0.1:8000 docker compose up --build
+```
 
 ```bash
 curl -s http://127.0.0.1:8000/health
@@ -101,7 +112,9 @@ curl -s http://127.0.0.1:8000/health
 
 Stop with `Ctrl+C` or `docker compose down`.
 
-## ClauseGuard web UI
+## ClauseGuard web UI (local Node, optional)
+
+For UI hot-reload without rebuilding the web image:
 
 ```bash
 cd web
@@ -110,7 +123,7 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:3000`. Point `NEXT_PUBLIC_API_URL` at the API (default `http://127.0.0.1:8000`). The API allows those origins via `CLAUSEGUARD_CORS_ORIGINS`.
+Open `http://localhost:3000`. Point `NEXT_PUBLIC_API_URL` at the API (default `http://127.0.0.1:8000`). The API allows those origins via `CLAUSEGUARD_CORS_ORIGINS`. Keep the API up via Compose or `uvicorn`.
 
 ## Layout
 
@@ -124,7 +137,8 @@ data/            # smoke / golden clause sets
 api/             # FastAPI ClauseGuard (OpenRouter)
 web/             # Next.js + TypeScript UI
 Dockerfile         # API image
-docker-compose.yml # local self-host for the API
+web/Dockerfile     # Next.js UI image
+docker-compose.yml # local self-host (API + web)
 ```
 
 ## Safety and non-goals
@@ -135,6 +149,6 @@ docker-compose.yml # local self-host for the API
 
 ## Roadmap (short)
 
-- [x] Docker Compose for the API
+- [x] Docker Compose for the API (+ web UI)
 - [x] TypeScript/Next.js UI (`web/`)
 - Zero-cost public hosting (Vercel UI + free API or tunnel)

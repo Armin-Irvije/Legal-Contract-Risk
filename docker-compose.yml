@@ -9,6 +9,7 @@ services:
       CLAUSEGUARD_MODEL: ${CLAUSEGUARD_MODEL:-openai/gpt-4o-mini}
       PIPELINE_MODEL: ${PIPELINE_MODEL:-openai/gpt-4o-mini}
       PIPELINE_MAX_TOKENS: ${PIPELINE_MAX_TOKENS:-900}
+      CLAUSEGUARD_CORS_ORIGINS: ${CLAUSEGUARD_CORS_ORIGINS:-http://localhost:3000,http://127.0.0.1:3000}
     healthcheck:
       test:
         [
@@ -21,3 +22,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  web:
+    build:
+      context: ./web
+      args:
+        # Browser on the host calls the API via published port 8000.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://127.0.0.1:8000}
+    ports:
+      - "3000:3000"
+    depends_on:
+      api:
+        condition: service_healthy
